@@ -1,72 +1,16 @@
-# Build CoPaw Desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app), Linux (PyInstaller -> binary)
-# Runs automatically on release publish; also manually via Actions tab.
-
-name: CoPaw Desktop Build
+name: Build Linux ARM64
 
 on:
+  workflow_dispatch:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Get version
-        id: version
-        shell: pwsh
-        run: |
-          $content = Get-Content src/copaw/__version__.py -Raw
-          if ($content -match '__version__\s*=\s*"([^"]+)"') { $v = $Matches[1] } else { throw "Failed to extract version from __version__.py" }
-          "version<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: console/package-lock.json
-
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-update-conda: true
-          python-version: "3.10"
-          activate-environment: "copaw-build"
-          condarc-file: .github/condarc
-          conda-remove-defaults: false
-
-      - name: Install NSIS
-        uses: negrutiu/nsis-install@v2
-
-      - name: Clean dist directory
-        shell: pwsh
-        run: |
-          if (Test-Path dist) { Remove-Item -Recurse -Force dist }
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-
-      - name: Build Windows installer
-        shell: pwsh
-        run: conda run -n copaw-build pwsh -File ./scripts/pack/build_win.ps1
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: CoPaw-Desktop-Windows-${{ steps.version.outputs.version }}
-          path: dist/CoPaw-Setup-*.exe
-
-  build-macos:
-    runs-on: macos-14
+  build-arm64:
+    runs-on: ubuntu-22.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,118 +21,40 @@ jobs:
         id: version
         run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/copaw/__version__.py)" >> $GITHUB_OUTPUT
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: console/package-lock.json
-
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-update-conda: true
-          python-version: "3.10"
-          activate-environment: "copaw-build"
-          condarc-file: .github/condarc
-          conda-remove-defaults: false
-
-      - name: Clean dist directory
-        run: rm -rf dist && mkdir -p dist
-
-      - name: Build macOS .app
-        run: |
-          chmod +x scripts/pack/build_macos.sh
-          conda run -n copaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
-
-      - name: Upload macOS artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: CoPaw-Desktop-macOS-${{ steps.version.outputs.version }}
-          path: dist/CoPaw-*.zip
-
-  # ========== 新增的 Linux ARM64 构建任务 ==========
-  build-linux-arm64:
-    runs-on: ubuntu-22.04-arm  # 调用 GitHub 官方原生 ARM64 资源
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Get version
-        id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/copaw/__version__.py)" >> $GITHUB_OUTPUT
-
-      - name: Build Linux arm64 binary via Docker (Ubuntu 20.04 compatibility)
+      - name: Build binary via Docker
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace arm64v8/ubuntu:20.04 bash -c '
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update -y
-            apt-get install -y curl git build-essential software-properties-common zlib1g-dev libffi-dev
-            
-            # 对齐官方的 Node.js 20 版本
-            curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-            apt-get install -y nodejs
-            
-            # 安装 Python 3.10
-            add-apt-repository ppa:deadsnakes/ppa -y
-            apt-get update -y
-            apt-get install -y python3.10 python3.10-venv python3.10-dev python3.10-distutils
-            curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
-            
-            # 编译前端
-            cd console
-            npm ci
-            npm run build
-            cd ..
-            mkdir -p src/copaw/console
-            cp -R console/dist/. src/copaw/console/
-            
-            # 打包后端
-            python3.10 -m pip install --upgrade pip
-            python3.10 -m pip install -e .
-            python3.10 -m pip install pyinstaller
-            
-            python3.10 -m pyinstaller --onefile \
-              --add-data "src/copaw/console:copaw/console" \
-              --name CoPaw-Linux-arm64 \
-              src/copaw/main.py
-              
-            chmod -R 777 dist/
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -y
+          apt-get install -y curl git build-essential software-properties-common zlib1g-dev libffi-dev
+          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+          apt-get install -y nodejs
+          add-apt-repository ppa:deadsnakes/ppa -y
+          apt-get update -y
+          apt-get install -y python3.10 python3.10-venv python3.10-dev python3.10-distutils
+          curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
+          cd console
+          npm ci
+          npm run build
+          cd ..
+          mkdir -p src/copaw/console
+          cp -R console/dist/. src/copaw/console/
+          python3.10 -m pip install --upgrade pip
+          python3.10 -m pip install -e .
+          python3.10 -m pip install pyinstaller
+          python3.10 -m pyinstaller --onefile --add-data "src/copaw/console:copaw/console" --name CoPaw-Linux-arm64 src/copaw/main.py
+          chmod -R 777 dist/
           '
 
-      - name: Upload Linux artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CoPaw-Desktop-Linux-arm64-${{ steps.version.outputs.version }}
+          name: CoPaw-Linux-arm64-${{ steps.version.outputs.version }}
           path: dist/CoPaw-Linux-arm64
 
-  # ========== 修改后的发布任务 ==========
-  upload-release:
-    needs: [build-windows, build-macos, build-linux-arm64] # 增加 Linux 依赖
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Move artifacts to root for upload
-        run: |
-          mv CoPaw-Desktop-Windows-*/CoPaw-Setup-*.exe . 2>/dev/null || true
-          mv CoPaw-Desktop-macOS-*/CoPaw-*.zip . 2>/dev/null || true
-          # 新增：移动 Linux 产物
-          mv CoPaw-Desktop-Linux-arm64-*/CoPaw-Linux-arm64 . 2>/dev/null || true
-
-      - name: Upload to Release
+      - name: Upload to Release (If triggered by release)
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            CoPaw-Setup-*.exe
-            CoPaw-*-macOS.zip
-            CoPaw-Linux-arm64
+          files: dist/CoPaw-Linux-arm64
           fail-on-unmatched-files: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

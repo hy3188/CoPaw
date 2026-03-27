@@ -26,25 +26,19 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update -y
           apt-get install -y curl git build-essential software-properties-common zlib1g-dev libffi-dev
-          
           curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
           apt-get install -y nodejs
-          
           apt-get install -y python3.10 python3.10-venv python3.10-dev python3.10-distutils
           curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
-          
           cd console
           npm ci
           npm run build
           cd ..
-          
           mkdir -p src/copaw/console
           cp -R console/dist/. src/copaw/console/
-          
           python3.10 -m pip install --upgrade pip
           python3.10 -m pip install -e .
           python3.10 -m pip install pyinstaller
-          
           python3.10 -m pyinstaller --onefile --add-data "src/copaw/console:copaw/console" --name CoPaw-Linux-arm64 src/copaw/main.py
           chmod -R 777 dist/
           '
